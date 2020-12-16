@@ -3,8 +3,8 @@
 #+title:JavaScript Core Language Path
 #+subtitle:{{{version}}} {{{date}}}
 #+author:Misc999
-#+date:2020-12-15 07:28
-#+macro:version Version 0.0.0
+#+date:2020-12-16 08:15
+#+macro:version Version 0.0.1
 #+macro:upload-date (eval (current-time-string))
 #+bucket:pinecone-forest.com
 
@@ -16,9 +16,1041 @@
 * Introduction
 :PROPERTIES:
 :unnumbered: t
+:source:   PluralSite
 :END:
-* Chapter
-
+* JavaScript Security Best Practices
+  :PROPERTIES:
+  :author:   Marcin Hoppe
+  :author-url: marcinhoppe.com
+  :END:
+This course focuses on applications that can be directly attacked over the Web.
+
+Learn how to write more secure JavaScript  code. This course will teach you how
+to find,  fix, and prevent  vulnerabilities caused by unique  JavaScript issues
+such as prototype pollution, dynamic typing bugs, and code injection attacks.
+
+** Description
+Complex Web  applications contain a lot  of JavaScript code. Security  of those
+applications depends  on how robust  this code  is. In this  course, JavaScript
+Security: Best  Practices, you’ll  learn how  to improve  the security  of your
+JavaScript code.
+
+1. First,  you’ll explore  how  exploiting the  dynamic type  system  may lead
+   to information disclosure  vulnerabilities.
+2. Next,  you’ll discover how  JavaScript dynamic code execution  functions can
+   allow attackers to run arbitrary code within your application.
+3.  Finally,  you’ll learn  how abusing prototypal  inheritance may  change the
+   behavior of your application in unexpected ways.
+
+When you’re finished with this course,  you’ll have the skills and knowledge of
+JavaScript  security best  practices needed  to protect  your web  applications
+against attackers.
+
+** Course Overview
+Hi everyone.  My name is  Marcin Hoppe, and  welcome to my  Pluralsight course,
+JavaScript Security:  Best Practices. I  am a software engineer  specialized in
+information security.  I am  also a  member of  the Node.js  Ecosystem Security
+Working Group and an active contributor to the Open Source Security Foundation.
+
+The   web  is   a   wonderful,  but   dangerous   place,  Attackers,   security
+vulnerabilities,  and  data  breaches  are  a fact  of  life  for  many  online
+businesses.  JavaScript  has  a  very  special  place  in  the  web  ecosystem.
+JavaScript code can  be a target of an  attack, but it can also be  a tool that
+hackers use to breach our applications.
+
+In  this course,  we're going  to learn  how to  improve the  security of  your
+JavaScript code. We  are going to cover
+- the JavaScript  security model,
+- dynamic type system  vulnerabilities,
+- code injection attacks,
+- prototype  pollution, and
+- JavaScript security testing tools.
+
+By the end of  this course, you'll know how to find, fix,  and prevent the most
+common JavaScript  security bugs.
+
+Before beginning the course, you should be familiar with JavaScript programming
+concepts such as
+- variables,
+- types,
+- objects, and
+- functions.
+
+I hope you'll  join me on this journey  to learn how to write  more secure code
+with the JavaScript Security: Best Practices course, at Pluralsight.
+** Code---Wired Brain Coffee App
+*** Application Code
+#+name:Readme
+#+header: :tangle code/02/demos/README.md :mkdirp yes
+#+begin_src markdown
+# Wired Brain Coffee
+
+This project is a part of a fictional e-commerce application for coffee lovers. It allows users to log in, edit their shipping address, and log out.
+
+It is deliberate vulnerable to demonstrate the following JavaScript security issues:
+
+  - Sensitive data leak caused by a loose comparison bug
+  - Code injection vulnerability caused by use of unsafe `eval` function
+  - Prototype pollution in the `merge` utility function
+
+# Running the Application
+
+This application requires the Node.js runtime and the npm package manager to run. First, install the required dependencies:
+
+```bash
+$ npm install
+```
+
+Then, you can start the application by running:
+
+```bash
+$ npm start
+```
+
+The application listens on `http://localhost:3000`.
+
+# User Credentials
+
+You can use the following user credentials to log in to the application:
+
+| Email                        | Password |
+| ---------------------------- | -------- |
+| janet@wiredbraincoffee.com   | coldbrew |
+| joe@wiredbraincoffee.com     | coldbrew |
+| michael@wiredbraincoffee.com | coldbrew |
+
+#+end_src
+
+#+name:Application
+#+header: :tangle code/02/demos/app.js :mkdirp yes
+#+begin_src js
+const express = require('express');
+const bodyParser = require('body-parser');
+
+const login = require('./lib/login');
+const logout = require('./lib/logout');
+const { readProfile, saveProfile } = require('./lib/profile');
+
+const app = express();
+
+app.use(express.static('public'));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+app.post('/login', login);
+app.get('/logout', logout);
+app.get('/profile', readProfile);
+app.post('/profile', saveProfile);
+
+const PORT = 3000;
+app.listen(PORT, function () {
+  console.log(`http://localhost:${PORT}`);
+})
+
+#+end_src
+
+#+name:Application-package.json
+#+header: :tangle code/02/demos/package.json :mkdirp yes
+#+begin_src js
+{
+  "name": "js-security",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "author": "Marcin Hoppe <marcin.hoppe@gmail.com>",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^1.19.0",
+    "express": "^4.17.1"
+  }
+}
+
+#+end_src
+
+*** Library Code
+
+**** Login
+ #+name:Login
+ #+header: :tangle code/02/demos/login.js :mkdirp yes
+ #+begin_src js
+ const users = require('./users');
+
+ function login(req, res) {
+     // Get user credentials
+     const { email, password } = req.body;
+     // Authenticate the user
+     if (authenticate(email, password)) {
+         // Mark user session as authenticated
+         res.cookie('loggedInUser', email);
+         // Get return address
+         const returnTo = eval('(' + req.query.returnTo + ')');
+         // Redirect to the return address
+         res.redirect(returnTo.url);
+     } else {
+         // HTTP 401 when authentication fails
+         res.sendStatus(401);
+     }
+ }
+
+ function authenticate(email, password) {
+     // Try each user
+     for (let i = 0; i < users.length; ++i) {
+         // If email and password match
+         if (users[i].email === email && users[i].password === password) {
+             // Authentication successful
+             return true;
+         }
+     }
+     // If no user matched, authentication failed
+     return false;
+ }
+
+ module.exports = login;
+
+ #+end_src
+
+**** Logout
+ #+name:Logout
+ #+header: :tangle code/02/demos/logout.js :mkdirp yes
+ #+begin_src js
+ function logout(req, res) {
+     // Destroy the session
+     res.clearCookie('loggedInUser');
+     // Redirect back to the home page
+     res.redirect('/index.html');
+ }
+
+ module.exports = logout;
+
+ #+end_src
+
+**** Profile
+ #+name:Profile
+ #+header: :tangle code/02/demos/profile.js :mkdirp yes
+ #+begin_src js
+ const { filter, getParams, merge } = require('./utils');
+ const users = require('./users');
+
+ function readProfile(req, res) {
+     // Get search params
+     const [field, value] = getParams(req.query, ['field', 'value']);
+     // Find user(s)
+     const results = filter(users, field, value);
+     res.json(results);
+ }
+
+ function saveProfile(req, res) {
+     // Find user by email
+     const [user] = filter(users, 'email', req.body.email);
+     // Update the user object if needed
+     if (user) {
+         // Clone the data coming from request
+         const updatedUser = merge({}, req.body);
+         Object.assign(user, updatedUser);
+     }
+     // Respond with the user object
+     res.json([user]);
+ }
+
+ module.exports = {
+     readProfile,
+     saveProfile
+ };
+
+ #+end_src
+
+**** Users
+ #+name:Users
+ #+header: :tangle code/02/demos/users.json :mkdirp yes
+ #+begin_src js
+ [
+     {
+         "email": "janet@wiredbraincoffee.com",
+         "password": "coldbrew",
+         "address": "1234 Wired Brain Blvd\r\nAwesome City, MM 55555"
+     },
+     {
+         "email": "joe@wiredbraincoffee.com",
+         "password": "coldbrew",
+         "address": "1235 Wired Brain Blvd\r\nAwesome City, MM 55555"
+     },
+     {
+         "email": "michael@wiredbraincoffee.com",
+         "password": "coldbrew",
+         "address": "1236 Wired Brain Blvd\r\nAwesome City, MM 55555"
+     }
+ ]
+ #+end_src
+
+**** Utils
+ #+name:Utils
+ #+header: :tangle code/02/demos/utils.js :mkdirp yes
+ #+begin_src js
+ // Return items where a field has specific value
+ function filter(items, field, value) {
+     const results = [];
+     for (let i = 0; i < items.length; ++i) {
+         if (items[i][field] == value) {
+             results.push(items[i]);
+         }
+     }
+     return results;
+ }
+
+ // Retrieve array of parameters from the query string
+ function getParams(qs, params) {
+     const results = [];
+     for (let i = 0; i < params.length; ++i) {
+         const value = qs.hasOwnProperty(params[i])
+             ? qs[params[i]]
+             : null;
+         results.push(value);
+     }
+     return results;
+ }
+
+ // Deep merge two objects
+ function merge(target, source) {
+     for (let prop in source) {
+         if (typeof target[prop] === 'object' && typeof source[prop] === 'object') {
+             merge(target[prop], source[prop]);
+         }
+         target[prop] = source[prop];
+     }
+     return target;
+ }
+
+ module.exports = {
+     filter,
+     getParams,
+     merge
+ };
+
+ #+end_src
+
+*** Public Code
+
+**** Index
+#+name:Index
+#+header: :tangle code/02/demos/public/index.html
+#+begin_src html
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <link rel="stylesheet" href="lib/bootstrap/css/bootstrap.min.css">
+
+    <title>Wired Brain Coffee</title>
+</head>
+
+<body>
+    <h1></h1>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <a class="navbar-brand" href="index.html">Wired Brain Coffee</a>
+
+        <div class="collapse navbar-collapse" id="navbarSupportedContent">
+            <ul class="navbar-nav mr-auto" id="links">
+                <li class="nav-item active">
+                    <a class="nav-link" href="profile.html">Profile</a>
+                </li>
+                <li class="nav-item active">
+                    <a class="nav-link" href="login.html?returnTo=%7B%22url%22%3A%22index.html%22%7D">Login</a>
+                </li>
+            </ul>
+            <span class="navbar-text" id="loggedInUser">
+            </span>
+        </div>
+    </nav>
+
+    <div class="container">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">Coffee</th>
+                    <th scope="col">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <th scope="row">1</th>
+                    <td>Typica</td>
+                    <td><button type="button" class="btn btn-success">Buy!</button></td>
+                </tr>
+                <tr>
+                    <th scope="row">2</th>
+                    <td>Bourbon</td>
+                    <td><button type="button" class="btn btn-success">Buy!</button></td>
+                </tr>
+                <tr>
+                    <th scope="row">3</th>
+                    <td>Caturra</td>
+                    <td><button type="button" class="btn btn-success">Buy!</button></td>
+                </tr>
+                <tr>
+                    <th scope="row">4</th>
+                    <td>Pacamara</td>
+                    <td><button type="button" class="btn btn-success">Buy!</button></td>
+                </tr>
+                <tr>
+                    <th scope="row">5</th>
+                    <td>Geisha</td>
+                    <td><button type="button" class="btn btn-success">Buy!</button></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script src="session.js"></script>
+    <script src="lib/bootstrap/js/bootstrap.min.js"></script>
+</body>
+
+</html>
+#+end_src
+
+**** Login
+#+name:Login HTML
+#+header: :tangle code/02/demos/public/login.html
+#+begin_src html
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <link rel="stylesheet" href="lib/bootstrap/css/bootstrap.min.css">
+
+    <title>Wired Brain Coffee</title>
+</head>
+
+<body>
+    <h1></h1>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <a class="navbar-brand" href="index.html">Wired Brain Coffee</a>
+
+        <div class="collapse navbar-collapse" id="navbarSupportedContent">
+            <ul class="navbar-nav mr-auto" id="links">
+                <li class="nav-item active">
+                    <a class="nav-link" href="profile.html">Profile</a>
+                </li>
+                <li class="nav-item active">
+                    <a class="nav-link" href="login.html">Login</a>
+                </li>
+            </ul>
+            <span class="navbar-text" id="loggedInUser">
+            </span>
+        </div>
+    </nav>
+
+    <div class="container">
+        <form method="post" action="/login" id="login">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" class="form-control" id="email" name="email">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" class="form-control" id="password" name="password">
+            </div>
+            <button type="submit" class="btn btn-primary">Login</button>
+        </form>
+    </div>
+
+    <script src="login.js"></script>
+    <script src="session.js"></script>
+    <script src="lib/bootstrap/js/bootstrap.min.js"></script>
+</body>
+
+</html>
+#+end_src
+
+#+name:Login JS
+#+header: :tangle code/02/demos/public/login.js
+#+begin_src js
+// Parse the query string
+const queryString = new URLSearchParams(window.location.search);
+// Retrieve the return address
+const returnTo = queryString.get('returnTo');
+// Append it to the login form action URL
+const loginFormAction = '/login?returnTo=' + encodeURIComponent(returnTo);
+// Update the login form action
+document.getElementById('login').action = loginFormAction;
+
+#+end_src
+
+**** Profile
+#+name:Profile HTML
+#+header: :tangle code/02/demos/public/profile.html
+#+begin_src html
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <link rel="stylesheet" href="lib/bootstrap/css/bootstrap.min.css">
+
+    <title>Wired Brain Coffee</title>
+</head>
+
+<body>
+    <h1></h1>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <a class="navbar-brand" href="index.html">Wired Brain Coffee</a>
+
+        <div class="collapse navbar-collapse" id="navbarSupportedContent">
+            <ul class="navbar-nav mr-auto" id="links">
+                <li class="nav-item active">
+                    <a class="nav-link" href="profile.html">Profile</a>
+                </li>
+                <li class="nav-item active">
+                    <a class="nav-link" href="login.html?returnTo=%7B%22url%22%3A%22profile.html%22%7D">Login</a>
+                </li>
+            </ul>
+            <span class="navbar-text" id="loggedInUser">
+            </span>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="alert alert-danger" role="alert" id="notLoggedIn">
+            You need to be <a href="login.html?returnTo=%7B%22url%22%3A%22profile.html%22%7D">logged in</a> to edit the profile!
+        </div>
+        <form id="profile" class="invisible">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <span class="form-control" id="email" name="email" disabled></span>
+            </div>
+            <div class="form-group">
+                <label for="address">Shipping Address</label>
+                <textarea class="form-control" id="address" name="address" rows="3"></textarea>
+            </div>
+            <button type="button" class="btn btn-primary" id="saveProfile">Save</button>
+        </form>
+    </div>
+
+    <script src="session.js"></script>
+    <script src="profile.js"></script>
+    <script src="lib/bootstrap/js/bootstrap.min.js"></script>
+</body>
+
+</html>
+#+end_src
+
+#+name:Profile JS
+#+header: :tangle code/02/demos/public/profile.js
+#+begin_src js
+function displayProfile(json) {
+    const [user] = json;
+
+    // Check if user was found
+    if (user) {
+        // Display user information on the form
+        document.getElementById('email').textContent = user.email;
+        document.getElementById('address').textContent = user.address;
+        document.getElementById('saveProfile').onclick = saveProfile;
+    } else {
+        // Display warning
+        document.getElementById('email').value = 'Not Found';
+    }
+}
+
+function saveProfile() {
+    // Get user data form the form
+    const user = {
+        email: document.getElementById('email').textContent,
+        address: document.getElementById('address').value
+    };
+    // Save user profile information
+    const promise = fetch('/profile', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(user)
+    });
+
+    // Bind user information to the form
+    promise
+        .then(res => res.json())
+        .then(json => displayProfile(json));
+}
+
+// Check if the user is logged in (based on email cookie)
+if (cookie.startsWith('loggedInUser=')) {
+    // Hide the warning banner and show the form
+    document.getElementById('notLoggedIn').className = 'invisible';
+    document.getElementById('profile').className = 'visible';
+    // Get user email from cookie
+    const [nameAndValue] = cookie.split(';');
+    const email = nameAndValue.slice('loggedInUser='.length);
+    // Get user profile information
+    const e = encodeURIComponent;
+    const url = `/profile?field=${e('email')}&value=${e(email)}`;
+    const promise = fetch(url, {
+        method: 'GET',
+        credentials: 'same-origin'
+    });
+    // Bind user information to the form
+    promise
+        .then(res => res.json())
+        .then(json => displayProfile(json));
+}
+
+#+end_src
+
+**** Session
+#+name:Session JS
+#+header: :tangle code/02/demos/public/session.js
+#+begin_src js
+// Check if the user is logged in (based on loggedInUser cookie)
+const cookie = decodeURIComponent(document.cookie);
+if (cookie.startsWith('loggedInUser=')) {
+    // Add logout link
+    const links = document.getElementById('links');
+    const logoutListItem = links.lastElementChild.cloneNode(true);
+    const logoutLink = logoutListItem.firstElementChild;
+
+    logoutLink.text = 'Logout';
+    logoutLink.href = '/logout';
+
+    links.appendChild(logoutListItem);
+
+    // Get user email from cookie
+    const [nameAndValue] = cookie.split(';');
+    const email = nameAndValue.slice('loggedInUser='.length);
+
+    // Display user email
+    const loggedInUserField = document.getElementById('loggedInUser');
+    loggedInUserField.textContent = email;
+}
+
+#+end_src
+
+** Understanding JavaScript Security
+*** Introduction
+Welcome to the JavaScript Security: Best Practices course, here on Pluralsight.
+My name is Marcin Hoppe, and in this course, I will teach you how to write more
+secure  and robust  JavaScript code.
+
+The web runs on JavaScript. It is the dominant programming language for writing
+browser applications,  and thanks  to the Node.js  runtime, it  is increasingly
+common to see it in the back end too. The quality of JavaScript code is crucial
+for security  of web applications. This  course, however, is not  about general
+web  application  security.  We  will  not address  problems  that  can  affect
+applications written in  any programming language.
+
+In this course, we focus on security  issues that are unique to JavaScript, and
+they are a result of its dynamic nature.  I will teach
+
+- you how to identify such vulnerabilities,
+- how to  fix them, and
+- prevent those issues  from creeping into your  code.
+
+In this module, we will focus on  the fundamental role that JavaScript plays in
+web application security.  JavaScript can contain vulnerabilities,  but in some
+cases it may  even become an attack vector.
+
+There are  two popular environments  for running  JavaScript code, and  both of
+them have very different security properties.
+
+1. First, we will take a look at how browsers run JavaScript,
+2. and then we will see how  Node.js is different.
+3.  Then,  we  will  look  at  language features  that  may  lead  to  security
+   vulnerabilities:
+   - dynamic typing,
+   - dynamic  code  execution, and
+   - prototypal inheritance.
+4. We  will wrap this  module up  with an example  of a simple  coding mistake,
+   literally just  a missing  character, that  leads to  a significant  leak of
+   sensitive data.
+
+Information security professionals  are well known for specific  jargon to use.
+We will not use it here, but  it is important to understand some basic concepts
+of web  security.
+
+- Attacks against web  applications are carried out by people.  You may have an
+  image  of a  person in  a  black hoodie  typing  at their  keyboard in  their
+  basement, but the reality is much more nuanced.
+- Attackers differ based on their capabilities  and motivations. They  can be
+  teenagers wanting  to impress their friends, fired  employees seeking
+  revenge, as well  as criminals breaking into  applications   for  money.
+- Attacks  would   not  be   possible  without vulnerabilities. Vulnerabilities
+  are  technical flaws in the  system that allow people with malicious  intent
+  to break into our applications  and systems. They can be simple bugs in the
+  code, fundamental architecture flaws or configuration mistakes.
+- All of them can  lead to data breaches. Those that  usually hit the headlines
+  are about  leaking millions and millions  of sensitive data records,  such as
+  credit card numbers.
+- Data breaches can also involve abusing application functionality,  for
+  example  toward their  goods  without paying  or getting  a refund for goods
+  that were never purchased  in the first place.
+- The most common web application architecture has three tiers,
+  1. the browser,
+  2. the server, and
+  3. the database
+
+JavaScript code can  run both in the  browser and the user's device,  such as a
+laptop  or smartphone,  or  on  the server  using  Node.js.
+- Vulnerabilities  in server‑side  code may  allow  attackers  to breach
+  access  to the  application datastore.
+- A successful  attack in a  database may lead to  a data breach  that involves
+  many users.
+- The impact of  a vulnerability in client‑side code is  typically limited to a
+  single user.
+- That sounds like good news. Unfortunately, bugs in JavaScript code running in
+  a  browser may  allow  attackers to  impersonate the  victim  and to  perform
+  actions on their behalf. In this case, the vulnerable JavaScript code becomes
+  an attack vector.
+
+*** How A Browser Executes JavaScript Code
+JavaScript was created to add interactivity to HTML pages. Web browsers are the
+native environment to run JavaScript code.  In fact, JavaScript is the dominant
+programming  language in  this space.  When  the user  visits a  web page,  the
+browser downloads the HTML  code of that page, as well as  all the other assets
+needed  to display  this  page. This  includes CSS  style  sheets, images,  and
+JavaScript code.
+
+Browsers  allow users  to visit  multiple pages  at the  same time  in tabs  or
+separate browser  windows. This means that  at any given time,  JavaScript code
+downloaded from several different sites is executed in the same browser. If one
+of those sites is infected or even owned  by the attacker, aren't we at risk of
+malicious code  stealing our data  from legitimate sites? Luckily,  browsers do
+not  allow for  this, and  every website  executes JavaScript  code in  its own
+sandbox  within the  browser.  Code  from one  website  cannot  access data  or
+functionality  from  another website.  This  is  one  of the  most  fundamental
+security properties of the web.
+
+Some browsers use  very sophisticated sandboxing mechanisms,  like
+- running each tab in  a separate operating system  process;
+- downloading code over  the Secure HTTP  Protocol; and
+- using  Subresource  Integrity, or  SRI  for  short, prevents  attackers  from
+  injecting their own malicious code into benign sites.
+
+JavaScript code running in the browser is  restricted in what it can do.
+- It has no access to local resources in a  user's computer,
+- and this applies to devices such as  webcams or microphones,  the file
+  system,  and the local  network.
+- The code can use those resources only  using very limited browser APIs.
+- This allows the browser  to minimize the attack surface and  ask the user for
+  explicit consent for  using those resources.
+- Code originating  from different  sites cannot access  each other's  data and
+  functionality.  This allows  for even  stronger protection  of data  and code
+  execution within the browser.
+
+*** How Node.js Executes JavaScript Code
+Node.js is  a runtime environment for  JavaScript based on the  V8 engine built
+for the  Google Chrome browser.  The unusual thing about  it is that  it allows
+JavaScript  code  to run  outside  of  the browser.  It  has  gained a  lot  of
+popularity and has proven  to be a popular tool to  build command line programs
+and web  applications.
+
+It is  quite different from the  browser from a security  perspective.
+
+- Browsers download the code, and Node.js loads the code from local files, much
+  like other popular  programming  languages.
+- The  permissions  model  is  also  different.
+- Browsers treat  the code as untrusted  and restrict capabilities it  has
+  access to, and Node.js  treats the code with  full trust and grants access
+  to all the privileges the operating  system user has access to,  including
+  devices, files, and the local  network.
+- Attacks based on a security vulnerability  in a browser may affect one victim
+  at a time.
+- Bugs in Node.js may allow for  full server compromise, potentially leading to
+  a serious data breach.
+
+*** JavaScript Security Pitfalls
+JavaScript  is a  little  bit of  an unusual  programming  language. Its  rapid
+development and massive popularity gave us several language features and coding
+patterns  that  may  easily  lead  to  exploitable  security  bugs.
+
+#+texinfo: @heading Dynamic Variables
+
+JavaScript variables  can refer  to objects of  different types.  In statically
+typed programming languages, variables can only  store or reference values of a
+particular type. An  integer can only store numbers, never  strings or objects.
+In  JavaScript, a  variable can  refer  to a  number,  a string  or an  object,
+depending on the flow of control. When you  look at the code, you do not always
+know  the  types  of  variables.  It  may  lead  to  unintentional  information
+disclosure or  other security bugs.
+
+#+texinfo: @heading Invoking the JavaScript Engine
+
+JavaScript programs can  invoke JavaScript engine at runtime. It  sounds like a
+really powerful  feature, and it is.  It allows for easy  processing of complex
+data formats, such  as mathematical formulas or  implementing applications that
+users can  extend with their own  JavaScript code. Unfortunately, this  is also
+what  attackers  dream about,  the  ability  to  inject  their code  into  your
+application.
+
+#+texinfo: Prototypal Inheritance
+
+JavaScript  has  a  pretty   unusual  inheritance  mechanism.  Most  mainstream
+programming languages use classes to express static, hierarchical relationships
+between types of objects. In JavaScript,  the same goal is achieved by building
+dynamic  relationships between  individual objects.  Each object  has a  parent
+object, the prototype it inherits properties  from. If attackers can modify the
+objects forming the  prototype chain, they may alter the  behavior of your code
+in unforeseen  ways.
+
+#+texinfo: JavaScript Dynamism
+
+The  dynamism of  JavaScript is  powerful  and flexible.  It facilitates  rapid
+development and unlocks programmer productivity. If the same dynamism is abused
+by attackers, it can lead to security vulnerabilities.
+
+*** Sample Application
+Now let's take  a look at the sample application  implemented in JavaScript. It
+is a part of an ecommerce system for specialty coffee lovers. In a true startup
+fashion, it was built fast and, truth be told, some things might be broken. The
+development team  thinks there might be  a few security issues  here and there.
+
+#+texinfo: @heading Login Screen
+
+The first area of concern is the login screen. It looks simple at a glance, but
+it has some smarts in how it tracks  where the user was coming from before they
+logged in. We  will take a closer  look at that functionality.
+
+#+texinfo: @heading User Profile Management
+
+The  second  area  that  needs   attention  is  user  profile  management.  The
+implementation  uses several  programming  idioms that  depend  heavily on  the
+dynamic  nature of  JavaScript.  We will  inspect  the code  of  both of  those
+features throughout  the course.
+
+#+texinfo: @heading Logging In
+
+We start  on the home screen  of the list of  coffee beans sold by  Wired Brain
+Coffee. The first functionality is the login  screen. We type in the email, and
+we are  in. Notice  that now  the user's email  is displayed  in the  top right
+corner and the Logout button is visible. Now that we are logged in, we can also
+access the user profile management screen. It is quite simple, and it allows us
+to edit the shipping address. The Email  field is read only.
+
+#+texinfo: @heading Logging Out
+
+Let's log out,  and let's go to  the profile management screen  again. It looks
+like we first need to log in before we can edit the profile. Notice that now we
+are taken  back to the login  screen that has the  return URL stored in  a JSON
+object in  a query string.  User session is  implemented using a  simple cookie
+that  contains  user  email.  We  can  easily  display  it  using  the  browser
+development tools. Now,  let's take a closer look at  how this functionality is
+implemented.
+
+*** Code Walkthrough
+
+The Wired Brain Coffee ecommerce application consists of two components, server
+and client.  The back‑end code is  implemented in JavaScript using  Node.js and
+the Express framework. The details of  this framework are not relevant for this
+course, but it allows  us to easily handle serving JavaScript  code, as well as
+CSS and HTML assets.  It also allows us to dynamically  generate and serve JSON
+documents. All those files are served by  the server to the browser.
+
+#+texinfo: @heading Server Code
+
+Let's take a look at the server  code.
+
+- The ~app.js~ file configures the Express framework to serve  static files,
+  parse JSON documents, and  handle HTML forms.
+
+- The code in ~login.js~ handles the =login= form.
+  - It first reads the email and   password from the  form and checks if  they
+    match the users  in our database. This is a sample application, so storing
+    user information in a flat JSON file is good  enough.
+  - If the user credentials are verified, the code sends the cookie back to the
+    browser and redirects the user to the  return URL from the JSON object from
+    the query string.
+  - If the credentials are not verified, the code returns an HTTP 401 code.
+
+- The code in  ~logout.js~ is very simple. It removes  the cookie and redirects
+  the user back to the home page.
+
+- ~Profile.js~ has two functions.
+  - One of them is responsible for  /reading profile information/ from the JSON
+    file based  on some search criteria.  The criteria are sent  in the =field=
+    and  =value= query  string parameters.  Then, we  filter the  user database
+    based on those criteria. The results are sent back to the browser in a JSON
+    file.
+
+  - The function responsible for /saving the profile information/ is a bit more
+    complex.
+    - First, we  find a user based  on the =Email= field.
+    - If the user has  been found, we clone the field from  the request using a
+      JavaScript idiom that merges the =request= object with an empty object.
+    - Then, we assign all the fields from this copy to the =user= object in our
+      =user= database.
+    - Then, we return to user profile and JSON file.
+
+- I'm sure  you have noticed  a few helper  functions defined in  ~utils.js~.
+  - The ~filter~  function returns those  elements of  the items array  where a
+    given field matches  the provided  value.
+  - The  ~getParams~ function  retrieves an  array of  values from  the =query=
+    string object. The values are retrieved  by names specified in the =params=
+    array. The function also gracefully  handles missing values returning null,
+    which is a JavaScript value to denote missing data.
+  - The= ~merge~  function performs a deep  recursive merge of properties  of the
+    source object with the properties of the target object. Using such a function
+    with  an  empty object  as  the  target is  a  popular  JavaScript idiom  for
+    performing deep copies of objects.
+
+*** Loose Comparison Vulnerability
+JavaScript has  a dynamic type  system. It  means that variables  can reference
+values of different  types throughout their lifetime. At one  point, a variable
+may refer to  a number, and it may  refer to a string later on.  The rules that
+describe how  operations are applying  to values  of different types  are quite
+complex  and can  lead to  security issues.
+
+When  JavaScript  code attempts  to  perform  an  operation  on two  values  of
+different types, it needs to convert them to a common type where that operation
+is well  defined. For example,  adding a number to  a string will  convert that
+number to a  string, and the addition operation will  become a concatenation of
+two  strings.  This may  lead  to  unexpected code  being  called  if types  of
+variables  are  not  properly  tracked   and  controlled.
+
+JavaScript has  two comparison operators,  strict, also known as  triple equals
+(===), and loose,  known as double equals (==). The  strict comparison operator
+compares both the value  and type, so a string can never be  equal to a number.
+The  loose  comparison,   when  applied  to  parameters   of  different  types,
+automatically converts  the operands to  a common  type to make  the comparison
+possible. When using this operator, a string  can, in some cases, be equal to a
+number.
+
+Comparing values such as =null= and  =undefined= is another corner case. Strict
+comparison  will always  treat those  two values  as different,  but the  loose
+comparison will  treat them as  equal. This may  lead to security  checks being
+bypassed. If  they use the loose  comparison, variable types are  not enforced.
+
+Another aspect of JavaScript  dynamism is that it used to  be very forgiving of
+programming errors. Over time, it  became clear that certain language features,
+like giving any function an ability  to define a global variable, are dangerous
+for security  and the  correctness of  the code.  Newer versions  of JavaScript
+allow the  code to run  in so‑called "strict" mode  that prohibits some  of the
+problematic  behaviors. Strict  mode is  enabled  by putting  the "use  strict"
+string literal at the  beginning of a script or function,  and it should always
+be used when writing  JavaScript code.
+
+Let's get back to the code of the Wired Brain Coffee application. Let's quickly
+review all the code files for use  of the loose comparison operator. If we find
+it is used in a security check  that operates on untrusted input data, it might
+be a security  vulnerability. It looks like the double  equals operator is used
+in the ~filter~ utility function and is called from the ~readProfile~ function.
+Now let's take a quick look at how to exploit this bug.
+
+*** Exploiting the Vulnerability
+We identified a potential vulnerability. Now we  need a way to make use of this
+bug  to either  steal  sensitive  data or  abuse  functionality  of our  sample
+application.
+
+There are a few ways to make  use of automatic conversions and loose comparison
+to invoke an unwanted or unexpected behavior. We can try to use numbers instead
+of strings, we  can use arrays where  objects are expected, we  can also remove
+properties that get  the JavaScript value =undefined=.
+
+When we have identified input that may potentially lead to an attack, we should
+work backwards from the vulnerable code to the  input data to try to find a way
+to  deliver it  to the  vulnerable piece  of code.  When we  have that,  we can
+inspect  the HTTP  requests  and  responses using  browser  developer tools  or
+proxies such  as Fiddler.
+
+The  next step  is to  modify legitimate  requests to  include malicious  data.
+
+Finally, we  send such modified requests  to the application.
+
+Let's see how  we may do this for  the loose comparison we found  in the filter
+function. The loose comparison tries to  compare a field of an object, provided
+as  an  input  parameter, to  a  specific  value,  also  provided as  an  input
+parameter. Both the field and the  value are taken from =request= parameters in
+the ~readProfile~ function. If we could trick the filter condition to always be
+=true=, we  would be able  to retrieve information about  all the users  in the
+database.
+
+- If the  field did not  exist, the  property retrieval, the  bracket notation,
+  would return undefined.
+- If the value was =null=, the loose comparison would always be true.
+- Luckily for  the attacker, it will  be =null= if  it is missing from  the
+  query string thanks to  the ~getParams~ function.
+
+Let's see  how we  can do  that.
+
+1. The first  step is  to capture  the legitimate request.
+   - Let's open  the browser developer tools and let's  inspect the network traffic.
+   - The =request= has a field name and value in the query string.
+   - The =response=  contains an array with  a single user object  matching the
+     provided  email value.
+2. Now, let's  modify the =request=.
+   - Let's remove the  value from the query string, and  let's change the field
+     name to an invalid value.
+   - It's time to send such a modified request to the application.
+   - The =response=  now contains information  about all the users.
+
+Our attack has been successful. Now, let's see how to fix it.
+
+*** Fixing the Code
+There  are  several  ways  to  fix security  vulnerabilities  coming  from  the
+JavaScript dynamic typed system.
+- Using strict  mode is a no‑brainer, except for cases where backwards
+  compatibility is a concern. All code should run in strict mode.
+- Using loose  comparison  can lead  to  strange bugs,  and  when used  in
+  security checks it can lead to their bypass. The strict comparison operator,
+  or triple  equals (===),  should  be used  instead.
+- Object equality can also be checked using the ~Object.is~ method, which works
+  almost like triple equals, except for  a few corner cases related to numbers.
+- Untrusted input should always be subject  to data type verification. All data
+  coming from outside  of the application might have  potentially been tampered
+  with by the  attacker and may cause unexpected type  conversions and unwanted
+  behavior.
+
+Now, let's fix our vulnerability. The  simplest way to fix the loose comparison
+vulnerability is to replace it with  the triple equals operator. Now, let's see
+if this stopped the attack.
+
+- Let's send  the malicious request again. We need to remove the value
+  parameter and change  the field parameter to an invalid value.
+- Now we get  the expected result, an  empty array. The array  is empty because
+  the comparison  operator correctly distinguished between  null and undefined.
+- If this behavior still  seems a little off to you,  you're right, we're still
+  relying on arcane  rules of comparison of =null= and  =undefined= values. The
+  input data validation should be a  lot stricter and reject incorrectly formed
+  requests.
+- Let's add  validation for the field  and value parameters and  return an HTTP
+  400 code  to inform  the caller that  the request was  malformed. We  need to
+  check if  the type of both  field and value variables  is a string. If  it is
+  not, we have to return the error  code and skip the rest of the ~readProfile~
+  function.
+- Let's send the malicious request again.  Now, the server properly responds to
+  a malicious attack. We tightened our  defenses by verifying that all required
+  parameters are indeed present and that the types are what we expect
+
+*** Summary
+In this module, we covered which JavaScript features may lead to security bugs.
+
+- We have seen  how the dynamic type  system may lead to  disclosure of
+  sensitive information.  In the  next two  modules, we  will dive  deep into
+  dynamic code execution and prototypal inheritance, and we  will see how these
+  features might be exploited.
+- We have also  taken a look at  the two most popular  environments for running
+  JavaScript code,  and we  have seen  how different they  are from  a security
+  perspective.
+  - Browsers run  JavaScript in a  secure sandbox, but bugs  may be used  as an
+    attack vector.
+  - JavaScript code running on Node.js has  all the privileges of the operating
+    system  account it  runs under,  and the  bugs may  lead to  a full  server
+    compromise.
+
+You will see one such vulnerability in the next module.
+
+** Preventing Code Injection Attacks
+** Defending Against Prototype Pollution
+** Testing Your Code
+
 * Build Tools
 :PROPERTIES:
 :appendix: t
